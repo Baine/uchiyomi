@@ -18,6 +18,14 @@ export interface ModelRun {
 /** Loading 18 GB from a hard disk took 90 s on the owner's server: the first page waits this long at most. */
 const LOAD_TIMEOUT_MS = 5 * 60_000;
 
+/** Whether the server behind TRANSLATE_ENGINE_URL answers: an unreachable one lets the engine fall back to the local model. */
+export async function translationServerHealthy(url: string, timeoutMs = 3000): Promise<boolean> {
+  try {
+    const r = await fetch(url.replace(/\/+$/, '') + '/health', { signal: AbortSignal.timeout(timeoutMs), redirect: 'error' });
+    return r.ok;
+  } catch { return false; }
+}
+
 const freePort = () => new Promise<number>((resolve, reject) => {
   const s = net.createServer();
   s.unref();

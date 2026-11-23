@@ -7,7 +7,7 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { OcrWorker } from './ocr';
-import { TranslationModel } from './llm';
+import { TranslationModel, translationServerHealthy } from './llm';
 import { MODELS, PACK_TAG, PACKS, platformKey, type EngineSize, type PinnedFile } from './pin';
 import { isDesktop } from '../desktop';
 
@@ -28,6 +28,13 @@ const IDLE_MS = 10 * 60_000;
 export const translateDir = () => process.env.TRANSLATE_DIR || path.join(process.env.CONFIG_DIR || '/config', 'translate');
 /** An existing llama.cpp-compatible server to translate with (a machine with a GPU, say): no model is downloaded then. */
 const externalUrl = () => process.env.TRANSLATE_ENGINE_URL?.trim() || '';
+
+/**
+ * TRANSLATE_ENGINE_URL is used as given. With TRANSLATE_FALLBACK (default on) an unreachable server and an installed
+ * local model mean the local one instead, so a GPU box that is down does not stop translation.
+ */
+export const engineUrl = (configured: string, localSize: EngineSize | null, reachable: boolean): string =>
+  configured && localSize && process.env.TRANSLATE_FALLBACK !== 'off' && !reachable ? '' : configured;
 
 interface Installed { tag: string; platform: string; size: EngineSize | null; at: string }
 
@@ -211,7 +218,9 @@ export async function acquireEngine(): Promise<Engine> {
   const dir = translateDir();
   const pack = path.join(dir, 'pack');
   const threads = Math.max(2, Number(process.env.TRANSLATE_THREADS) || Math.floor((os.availableParallelism?.() ?? os.cpus().length) / 2));
-  const url = externalUrl();
+  const configured = externalUrl();
+  const url = engineUrl(configured, inst.size, !!configured && await translationServerHealthy(configured));
+  if (configured && !url) console.warn(`[translate] ${configured} is unreachable: using the local model`);
   if (!url && inst.size) {
     const model = MODELS[inst.size];
     const size = model.files.reduce((s, f) => s + f.bytes, 0);
